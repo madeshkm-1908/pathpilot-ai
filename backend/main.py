@@ -185,7 +185,11 @@ async def generate_gemini_roadmap(
             detail="GEMINI_API_KEY is missing from backend/.env. Please configure a valid Gemini API key.",
         )
 
-    model_name = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
+    preferred_model = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview").strip()
+    candidate_models = [preferred_model]
+    for m in ("gemini-3-flash-preview", "gemini-3.5-flash-lite", "gemini-2.5-flash"):
+        if m not in candidate_models:
+            candidate_models.append(m)
 
     # Build grounded resources context from actual live search results
     resources_blocks = []
@@ -268,63 +272,66 @@ async def generate_gemini_roadmap(
         },
     }
 
-    gemini_endpoint = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key.strip()}"
-    )
+    last_error = "No response generated"
 
     async with httpx.AsyncClient(timeout=45.0) as client:
-        try:
-            resp = await client.post(gemini_endpoint, json=payload)
-        except httpx.RequestError as exc:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Network error communicating with Gemini API: {str(exc)}",
+        for model_name in candidate_models:
+            gemini_endpoint = (
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key.strip()}"
             )
-
-        if resp.status_code in (401, 403):
-            raise HTTPException(
-                status_code=401,
-                detail="GEMINI_API_KEY is invalid or unauthorized. Please check your Gemini API key in backend/.env.",
-            )
-        if resp.status_code == 429:
-            raise HTTPException(
-                status_code=429,
-                detail="Gemini API rate limit or quota exceeded. Please wait a moment and try again.",
-            )
-        if resp.status_code != 200:
-            err_msg = resp.text
             try:
-                err_json = resp.json()
-                if "error" in err_json and "message" in err_json["error"]:
-                    err_msg = err_json["error"]["message"]
-            except Exception:
-                pass
-            raise HTTPException(
-                status_code=502,
-                detail=f"Gemini API returned error (HTTP {resp.status_code}): {err_msg}",
-            )
+                resp = await client.post(gemini_endpoint, json=payload)
+            except httpx.RequestError as exc:
+                last_error = f"Network error communicating with Gemini ({model_name}): {str(exc)}"
+                continue
 
-        gemini_data = resp.json()
+            if resp.status_code in (401, 403):
+                raise HTTPException(
+                    status_code=401,
+                    detail="GEMINI_API_KEY is invalid or unauthorized. Please check your Gemini API key in backend/.env.",
+                )
+            if resp.status_code == 429:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Gemini API rate limit or quota exceeded. Please wait a moment and try again.",
+                )
+            if resp.status_code in (503, 404):
+                # Temporary high demand or deprecation: fallback to next candidate model
+                last_error = f"Gemini model {model_name} returned HTTP {resp.status_code}"
+                continue
+            if resp.status_code != 200:
+                err_msg = resp.text
+                try:
+                    err_json = resp.json()
+                    if "error" in err_json and "message" in err_json["error"]:
+                        err_msg = err_json["error"]["message"]
+                except Exception:
+                    pass
+                last_error = f"Gemini API returned error (HTTP {resp.status_code}): {err_msg}"
+                continue
 
-        try:
-            candidates = gemini_data.get("candidates", [])
-            if not candidates:
-                raise ValueError("No candidate output received from Gemini.")
-            text_response = candidates[0]["content"]["parts"][0]["text"]
-            parsed = json.loads(text_response)
+            gemini_data = resp.json()
+            try:
+                candidates = gemini_data.get("candidates", [])
+                if not candidates:
+                    continue
+                text_response = candidates[0]["content"]["parts"][0]["text"]
+                parsed = json.loads(text_response)
 
-            # Ensure learner_name and target_skill match profile
-            parsed["learner_name"] = profile.name
-            parsed["target_skill"] = profile.target_skill
-            if not parsed.get("disclaimer"):
-                parsed["disclaimer"] = "Live AI roadmap generated with Gemini and web search via Tavily."
+                parsed["learner_name"] = profile.name
+                parsed["target_skill"] = profile.target_skill
+                if not parsed.get("disclaimer"):
+                    parsed["disclaimer"] = "Live AI roadmap generated with Gemini and web search via Tavily."
 
-            return PathPreviewOut(**parsed)
-        except Exception as exc:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Failed to parse structured roadmap from Gemini: {str(exc)}",
-            )
+                return PathPreviewOut(**parsed)
+            except Exception as exc:
+                last_error = f"Failed to parse structured roadmap from Gemini ({model_name}): {str(exc)}"
+                continue
+
+        raise HTTPException(
+            status_code=502,
+            detail=f"All Gemini model candidates failed: {last_error}",
+        )
 
 
 # ---------------------------------------------------------------------------
