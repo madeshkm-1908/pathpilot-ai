@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: pathpilot-backend
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: CORS_ORIGINS
+        value: "https://*.vercel.app,http://localhost:5173"
+      - key: CORS_ORIGIN_REGEX
+        value: "https://.*\\.vercel\\.app"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite

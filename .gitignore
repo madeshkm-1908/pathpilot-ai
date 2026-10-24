@@ -1,0 +1,32 @@
+# === Secrets & Env ===
+.env
+.env.local
+.env.*.local
+*.env
+backend/.env
+frontend/.env.local
+secrets/
+
+# === Frontend (Node) ===
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+
+# === Backend (Python) ===
+backend/__pycache__/
+backend/*.pyc
+backend/*.pyo
+backend/.venv/
+backend/venv/
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/*.egg-info/
+backend/dist/
+
+# === OS / Editor ===
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/settings.json
+*.swp
