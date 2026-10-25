@@ -23,6 +23,10 @@ backend/.pytest_cache/
 backend/.mypy_cache/
 backend/*.egg-info/
 backend/dist/
+*.db
+*.sqlite
+*.sqlite3
+backend/*.db
 
 # === OS / Editor ===
 .DS_Store
